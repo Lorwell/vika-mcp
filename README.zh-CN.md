@@ -237,11 +237,11 @@ npm publish --registry=https://registry.npmjs.org/
 
 推荐使用 npm Trusted Publishing：
 
-1. 先在本地手动发布新包一次；或者临时创建 granular npm automation token，并保存为仓库 Secret `NPM_TOKEN`，用于第一次引导发布。
+1. 首个版本需要先为 npm 账户启用“授权与写入”2FA，再从可信本地终端手动发布一次，并输入 npm 提示的一次性验证码。npm 要求包已经存在，才能配置 Trusted Publishing 或 staged publishing。
 2. 在 npm 的 `vika-fusion-mcp` 包设置中添加 GitHub Actions Trusted Publisher：用户填写 `Lorwell`，仓库填写 `vika-mcp`，工作流文件名填写 `publish-npm.yml`。
 3. 除非以后创建了同名 GitHub Environment，否则 npm 的 environment 字段保持空白。
-4. OIDC 发布验证成功后删除 `NPM_TOKEN`。
-5. 每次发版前将 `package.json` 和 `package-lock.json` 更新为同一个未使用版本，推送提交，再创建 tag 为 `v<version>` 的 GitHub Release。
+4. 删除仓库 Secret `NPM_TOKEN` 并撤销所有引导 token。工作流不再提供 token 回退，只使用短期 OIDC 凭据认证。
+5. 后续每次发版前将 `package.json` 和 `package-lock.json` 更新为同一个未使用版本，推送提交，再创建 tag 为 `v<version>` 的 GitHub Release。
 
 Release tag 与包版本不一致时工作流会直接失败，不会静默发布其他代码版本。
 

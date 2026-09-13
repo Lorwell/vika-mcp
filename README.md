@@ -237,11 +237,11 @@ The [publish workflow](./.github/workflows/publish-npm.yml) runs whenever a GitH
 
 The recommended authentication method is npm Trusted Publishing:
 
-1. Publish the new package once manually, or temporarily add a granular npm automation token as the repository secret `NPM_TOKEN` for the bootstrap release.
+1. For the first-ever version, enable 2FA for authorization and writes on the npm account, then publish once from a trusted local terminal and approve the prompted OTP. npm requires the package to exist before Trusted Publishing or staged publishing can be configured.
 2. In the npm settings for `vika-fusion-mcp`, add a GitHub Actions trusted publisher with user `Lorwell`, repository `vika-mcp`, and workflow filename `publish-npm.yml`.
 3. Leave the npm environment field empty unless a matching GitHub Environment is later added.
-4. Remove `NPM_TOKEN` after OIDC publishing succeeds.
-5. For each release, update `package.json` and `package-lock.json` to the same unused version, push the commit, then publish a GitHub Release whose tag is `v<version>`.
+4. Delete the repository secret `NPM_TOKEN` and revoke any bootstrap tokens. The workflow intentionally has no token fallback and authenticates only with short-lived OIDC credentials.
+5. For each later release, update `package.json` and `package-lock.json` to the same unused version, push the commit, then publish a GitHub Release whose tag is `v<version>`.
 
 The workflow deliberately fails on a version/tag mismatch and never silently republishes a different revision.
 

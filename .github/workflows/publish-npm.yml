@@ -57,7 +57,3 @@ jobs:
 
       - name: Publish package
         run: npm publish --access public --provenance --tag "${{ steps.dist-tag.outputs.name }}"
-        env:
-          # Optional bootstrap fallback for the first publish. npm Trusted
-          # Publishing uses OIDC before falling back to this token.
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}

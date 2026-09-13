@@ -58,6 +58,40 @@ npm install --global vika-fusion-mcp@1.0.0
 vika-fusion-mcp
 ```
 
+## 推荐：使用 MCP Gateway 转为 HTTP 或 SSE
+
+如果需要连接多个远程客户端、部署在反向代理之后，或者客户端无法启动 stdio 子进程，推荐使用 [**lingya-ai/mcp-gateway**](https://github.com/lingya-ai/mcp-gateway)。它可以将 `vika-fusion-mcp` 转换为 Streamable HTTP、SSE 或 WebSocket 服务；网关提供无需 JVM 的原生程序，也提供内置 Node.js 的 Docker 镜像。
+
+当所有客户端共用同一个 Vika 服务地址和 Token 时，`vika-fusion-mcp` **建议使用共享模式**。所有会话复用同一个 MCP 子进程，可以降低启动和内存开销，并复用服务内部的能力缓存。
+
+共享模式的 Streamable HTTP：
+
+```bash
+mcp-gateway --from stdio --process-scope shared -- npx -y vika-fusion-mcp@1.0.0
+```
+
+默认 MCP 地址为 `http://127.0.0.1:8000/mcp`，健康检查地址为 `http://127.0.0.1:8000/healthz`。启动网关的进程需要已经设置 `VIKA_HOST` 和 `VIKA_TOKEN`，网关会将它们传递给 MCP 子进程。
+
+兼容旧版 SSE 客户端：
+
+```bash
+mcp-gateway --from stdio --to sse --process-scope shared --protocol-version 2024-11-05 -- npx -y vika-fusion-mcp@1.0.0
+```
+
+SSE 默认地址为 `http://127.0.0.1:8000/sse`。Windows 上的 `npx` 是 `.cmd` 脚本，应改用：
+
+```powershell
+mcp-gateway --from stdio --process-scope shared --shell-command "npx.cmd -y vika-fusion-mcp@1.0.0"
+```
+
+使用 MCP Gateway 的 Node.js Docker 镜像：
+
+```bash
+docker run --rm -p 127.0.0.1:8000:8000 -e VIKA_HOST -e VIKA_TOKEN moailaozi/mcp-gateway:1.0.0-node --from stdio --process-scope shared -- npx -y vika-fusion-mcp@1.0.0
+```
+
+共享模式会让客户端共享子进程、资源、订阅和工具内部状态；如果客户端之间必须隔离服务端状态，请改用默认的 isolated 模式。公网部署时应在网关前配置 TLS 和身份认证，因为网关自身只监听 HTTP。如果这个组合对部署有帮助，也欢迎为 [MCP Gateway](https://github.com/lingya-ai/mcp-gateway) 点一个 Star。
+
 ## 配置
 
 | 环境变量 | 必填 | 默认值 | 说明 |

@@ -58,6 +58,40 @@ npm install --global vika-fusion-mcp@1.0.0
 vika-fusion-mcp
 ```
 
+## Recommended: expose it over HTTP or SSE with MCP Gateway
+
+Need to connect several remote clients, deploy behind a reverse proxy, or use a client that cannot start stdio processes? [**lingya-ai/mcp-gateway**](https://github.com/lingya-ai/mcp-gateway) can turn `vika-fusion-mcp` into a Streamable HTTP, SSE, or WebSocket service. It is distributed as a native gateway, does not require a JVM at runtime, and also provides a Node.js Docker image.
+
+For `vika-fusion-mcp`, **shared mode is recommended** when all clients should use the same Vika host and token. One MCP child process serves all sessions, which reduces startup and memory overhead and lets the capability cache be reused.
+
+Streamable HTTP in shared mode:
+
+```bash
+mcp-gateway --from stdio --process-scope shared -- npx -y vika-fusion-mcp@1.0.0
+```
+
+The default endpoint is `http://127.0.0.1:8000/mcp`, with health checks at `http://127.0.0.1:8000/healthz`. The gateway process must inherit `VIKA_HOST` and `VIKA_TOKEN` so they are available to the child server.
+
+Legacy SSE compatibility:
+
+```bash
+mcp-gateway --from stdio --to sse --process-scope shared --protocol-version 2024-11-05 -- npx -y vika-fusion-mcp@1.0.0
+```
+
+The SSE endpoint defaults to `http://127.0.0.1:8000/sse`. On Windows, `npx` is a `.cmd` shim, so use:
+
+```powershell
+mcp-gateway --from stdio --process-scope shared --shell-command "npx.cmd -y vika-fusion-mcp@1.0.0"
+```
+
+Docker with the gateway's Node.js image:
+
+```bash
+docker run --rm -p 127.0.0.1:8000:8000 -e VIKA_HOST -e VIKA_TOKEN moailaozi/mcp-gateway:1.0.0-node --from stdio --process-scope shared -- npx -y vika-fusion-mcp@1.0.0
+```
+
+Shared mode intentionally shares the child process, resources, subscriptions, and tool state across clients. Use isolated mode instead when clients must not share server-side state. For Internet-facing deployments, put TLS and authentication in front of the gateway; its built-in listener is HTTP. If this integration helps your deployment, consider giving [MCP Gateway](https://github.com/lingya-ai/mcp-gateway) a star.
+
 ## Configuration
 
 | Variable | Required | Default | Description |

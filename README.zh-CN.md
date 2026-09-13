@@ -1,60 +1,46 @@
-# vika-mcp
+# vika-fusion-mcp
 
-通过 `stdio` 访问 Vika 数据表的 TypeScript MCP 服务。
-英文说明见 [README.md](./README.md)。
+基于 [Vika Fusion 开放 API](https://developers.vika.cn/api/introduction/) 的 MCP 服务与 TypeScript 库。通过 `stdio` 暴露 55 个工具，覆盖记录、26 种字段创建、附件、节点、嵌入链接和组织管理。
 
-## 环境变量
+[English](./README.md)
 
-- `VIKA_HOST`: 必填，例如 `https://vika.cn`
-- `VIKA_TOKEN`: 必填，Vika API Token
-- `VIKA_TIMEOUT_MS`: 可选，默认 `15000`
-- `VIKA_ALLOW_INSECURE_TLS`: 可选，默认 `false`
-- `VIKA_PROXY_URL`: 可选，为所有 Vika 请求指定统一代理，例如 `http://127.0.0.1:7890`
-- `VIKA_LOG_LEVEL`: 可选，可选值为 `debug`、`info`、`warn`、`error`
+## 主要能力
 
-## 脚本
+- 覆盖 `/fusion/v1`、`/fusion/v2` 和 `/fusion/v3` 下官网公开的非 AI Fusion operation。
+- 读取记录默认使用 Fusion v3，可显式选择 v1，不会静默降级。
+- 附件既可读取本地文件，也可安全下载公网 HTTP(S) URL 后上传。
+- URL 下载包含大小、总超时、DNS/IP、重定向、DNS 固定和 HTTPS 降级防护。
+- 六类删除工具全部要求显式传入 `confirm_destructive: true`。
+- 同时提供 `vika-fusion-mcp` CLI 和无导入副作用的 ESM 库入口。
+- 包含离线契约测试，以及每个工具至少执行两次真实调用的在线测试矩阵。
 
-- `npm run build`
-- `npm run check`
-- `npm test`
+## 运行要求
 
-## 用法
+- Node.js 22 或更高版本
+- Vika API Token
+- Vika 服务地址，公开云通常为 `https://vika.cn`
 
-先从 npm 安装：
+## 快速开始
 
-```bash
-npm install -g vika-mcp
-```
-
-然后让你的 MCP 客户端指向 `vika-mcp` 可执行文件。
-
-如果你不想全局安装，也可以直接运行：
+无需全局安装，直接运行 npm 包：
 
 ```bash
-npx -y vika-mcp
+npx -y vika-fusion-mcp@1.0.0
 ```
 
-服务端只调用 `/fusion/v1`、`/fusion/v2` 和 `/fusion/ai` 下的公开 REST 接口，不会探测站点根路径，从而避免部分部署场景下的 SafeLine 根路径拦截问题。
+服务使用 `stdio` 通讯，通常应由 MCP 客户端启动，而不是在终端中交互使用。
 
-### MCPorter 配置示例
-
-MCPorter 支持读取项目级配置 `config/mcporter.json`，也支持读取用户级配置 `~/.mcporter/mcporter.json`。
-
-如果你希望 MCPorter 直接启动已发布的 npm 包，可以使用下面的配置：
+### MCP 客户端配置
 
 ```json
 {
   "mcpServers": {
-    "vika-mcp": {
+    "vika": {
       "command": "npx",
-      "args": [
-        "-y",
-        "vika-mcp"
-      ],
+      "args": ["-y", "vika-fusion-mcp@1.0.0"],
       "env": {
         "VIKA_HOST": "https://vika.cn",
-        "VIKA_TOKEN": "${VIKA_TOKEN}",
-        "VIKA_PROXY_URL": "http://127.0.0.1:7890",
+        "VIKA_TOKEN": "替换为你的-api-token",
         "VIKA_TIMEOUT_MS": "15000",
         "VIKA_LOG_LEVEL": "info"
       }
@@ -63,89 +49,180 @@ MCPorter 支持读取项目级配置 `config/mcporter.json`，也支持读取用
 }
 ```
 
-说明：
+固定版本可以保证 MCP 每次启动行为一致；如果希望自动升级，可将 `@1.0.0` 改成 `@latest`。
 
-- `https://vika.cn` 是公开云版本的官方示例地址。
-- `${VIKA_TOKEN}` 表示由 MCPorter 从当前 shell 环境读取 token。也可以直接写死，但环境变量更安全。
-- `VIKA_PROXY_URL` 是最简单的代理方式，会让全部 Vika 请求走同一个代理。
-- 如果你的私有部署使用自签名证书，可以在 `env` 中加入 `"VIKA_ALLOW_INSECURE_TLS": "true"`。
+### 全局安装
 
-如果你更希望直接使用本仓库源码而不是已发布 npm 包，请先构建，再让 MCPorter 指向编译产物：
+```bash
+npm install --global vika-fusion-mcp@1.0.0
+vika-fusion-mcp
+```
+
+## 配置
+
+| 环境变量 | 必填 | 默认值 | 说明 |
+| --- | --- | --- | --- |
+| `VIKA_HOST` | 是 | — | Vika 服务地址，例如 `https://vika.cn` |
+| `VIKA_TOKEN` | 是 | — | Vika API Token，请勿提交到版本库 |
+| `VIKA_TIMEOUT_MS` | 否 | `15000` | Vika API 请求超时 |
+| `VIKA_PROXY_URL` | 否 | — | Vika API 请求使用的 HTTP(S) 代理 |
+| `VIKA_ALLOW_INSECURE_TLS` | 否 | `false` | 接受不受信任的 TLS 证书，仅建议在受控私有部署中使用 |
+| `VIKA_LOG_LEVEL` | 否 | `info` | `debug`、`info`、`warn` 或 `error` |
+
+日志写入 stderr，不会污染 stdout 上的 MCP 消息。
+
+## 作为 TypeScript 库使用
+
+现在导入包根路径不会自动启动服务。`runStdioServer` 用于启动标准 stdio 传输；`createVikaMcpServer` 返回尚未连接的 `McpServer`，可用于自定义传输或嵌入其他程序。
+
+```ts
+import { runStdioServer } from 'vika-fusion-mcp';
+
+await runStdioServer({
+  host: 'https://vika.cn',
+  token: process.env.VIKA_TOKEN!,
+  timeoutMs: 15_000,
+  allowInsecureTls: false,
+  logLevel: 'info',
+});
+```
+
+公开库导出包括：
+
+- `createVikaMcpServer(config?)`
+- `runStdioServer(config?)`
+- `loadConfig(env?)`
+- `PUBLIC_TOOL_NAMES`
+- `AppConfig`
+
+## 工具目录
+
+注册清单集中定义在 `PUBLIC_TOOL_NAMES`，契约测试会精确断言共 55 个工具。
+
+| 分类 | 工具 |
+| --- | --- |
+| 空间站与节点（4） | `get_spaces`、`get_nodes`、`search_nodes`、`get_node_details` |
+| 表格、附件与嵌入链接（5） | `create_datasheets`、`upload_attachments`、`get_embedlinks`、`create_embedlinks`、`delete_embedlinks` |
+| 记录（4） | `get_records`、`create_records`、`update_records`、`delete_records` |
+| 字段（28） | `get_fields`、下列 26 个字段创建工具、`delete_fields` |
+| 视图（1） | `get_views` |
+| 组织管理（13） | `get_a_member`、`update_a_member`、`delete_a_member`、`list_the_team_members`、`list_teams`、`create_a_team`、`update_a_team`、`delete_a_team`、`list_units_under_the_role`、`list_roles`、`create_a_role`、`update_a_role`、`delete_a_role` |
+
+26 个字段创建工具按类型拆分：
+
+- 文本与标识：`create_single_text_field`、`create_text_field`、`create_url_field`、`create_phone_field`、`create_email_field`、`create_work_doc_field`
+- 数值与选择：`create_number_field`、`create_currency_field`、`create_percent_field`、`create_single_select_field`、`create_multi_select_field`、`create_checkbox_field`、`create_rating_field`
+- 日期与人员：`create_date_time_field`、`create_member_field`、`create_created_time_field`、`create_last_modified_time_field`、`create_created_by_field`、`create_last_modified_by_field`
+- 关联与计算：`create_one_way_link_field`、`create_two_way_link_field`、`create_magic_lookup_field`、`create_formula_field`、`create_auto_number_field`、`create_button_field`、`create_attachment_field`
+
+### 关键行为
+
+- `create_datasheets` 只创建空表；随后使用类型专用字段工具逐列创建字段。
+- `get_records` 默认 `apiVersion: "v3"`。需要时显式传 `apiVersion: "v1"`；v3 失败不会触发隐式降级。
+- 记录排序使用对象数组，例如 `[{ "field": "创建时间", "order": "desc" }]`，服务会按 Fusion 官方格式编码查询参数。
+- 记录创建和更新每次接受 1–10 条记录，并支持 `viewId` 和 `fieldKey`。
+- 通讯录接口统一使用官网的 `unitId` 命名。
+- `delete_records`、`delete_fields`、`delete_embedlinks`、`delete_a_member`、`delete_a_team` 和 `delete_a_role` 必须传 `confirm_destructive: true`。
+- AI 会话补全以及未公开的节点、表单、导入和视图写入接口不会暴露。
+
+## 附件上传
+
+`upload_attachments` 必须且只能选择一种来源：
+
+- `filePath`：本地绝对或相对文件路径
+- `url`：由服务端先下载、再上传的公网 `http://` 或 `https://` 地址
+
+URL 示例：
 
 ```json
 {
-  "mcpServers": {
-    "vika-mcp": {
-      "command": "node",
-      "args": [
-        "C:/path/to/vika-mcp/dist/index.js"
-      ],
-      "env": {
-        "VIKA_HOST": "https://vika.cn",
-        "VIKA_TOKEN": "${VIKA_TOKEN}"
-      }
-    }
-  }
+  "datasheetId": "dstXXXXXXXXXXXXXX",
+  "url": "https://example.com/report.pdf",
+  "fileName": "quarterly-report.pdf",
+  "mimeType": "application/pdf",
+  "maxBytes": 20971520,
+  "downloadTimeoutMs": 15000
 }
 ```
 
-使用 MCPorter 的快速验证命令：
+`fileName` 和 `mimeType` 可选。默认大小限制为 20 MiB，可配置硬上限为 100 MiB；默认总下载超时为 15 秒，最大为 120 秒。
+
+远程下载会拒绝 URL 凭据、私有/保留/本地地址、不安全重定向、HTTPS 降级、DNS 重绑定、声明尺寸超限的响应，以及实际数据流超限的内容；最多允许五次重定向。这些措施用于降低 SSRF 风险，生产环境仍建议配合出站网络策略。
+
+## 开发与验收
 
 ```bash
-npx mcporter list vika --schema
-npx mcporter call vika.get_spaces
-```
-
-### 开发模式
-
-如果你是直接在这个仓库里开发，可以这样启动：
-
-```bash
-npm install
+npm ci
+npm run check
+npm test
 npm run build
-node dist/index.js
 ```
 
-### Agent Skill
+本地启动构建产物：
 
-这个仓库还附带了一份 skill，位于 `skills/vika-mcp/`。
-
-当你希望 agent 按推荐的 `vika-mcp` 使用方式工作，而不是自己猜 HTTP 调用或工具顺序时，就应该配合这个 skill 使用。它和 MCP 包暴露的工具面保持一致，主要帮助 agent：
-
-- 通过官方搜索和详情接口定位空间站与节点
-- 在写记录前先读取字段信息
-- 用 `get_records + recordIds` 做更窄的读取
-- 更稳妥地处理删除操作和组织管理接口
-
-之后可以在提示词里显式触发，例如：
-
-```text
-Use $vika-mcp to inspect the datasheet named "Leads" and list its fields.
-Use $vika-mcp to search a datasheet node named "Leads" and then update its records.
+```powershell
+$env:VIKA_HOST = "https://vika.cn"
+$env:VIKA_TOKEN = "替换为你的-api-token"
+node dist/cli.js
 ```
 
-这个 skill 只是对 MCP 的补充，不会替代 MCP 配置本身。agent 仍然需要先能访问 `vika-mcp` 服务器。
+可用验收命令：
 
-## 工具列表
+| 命令 | 用途 |
+| --- | --- |
+| `npm run check` | 只做 TypeScript 类型检查 |
+| `npm test` | 运行离线契约与安全测试 |
+| `npm run build` | 在 `dist/` 生成 ESM JavaScript 和类型声明 |
+| `npm run test:smoke` | 运行小型、显式启用的在线冒烟测试 |
+| `npm run test:live:all` | 对全部 55 个工具各执行至少两次真实调用 |
 
-- 记录类：`get_records`、`create_records`、`update_records`、`delete_records`
-- 字段类：`get_fields`、`create_fields`、`delete_fields`
-- 视图类：`get_views`、`create_view`、`delete_view`、`delete_views`、`update_view`、`copy_view`
-- 数据表读取：`upload_attachments`
-- 数据表写入：`create_datasheets`、`import_from_excel`
-- 空间站与节点：`get_spaces`、`get_nodes`、`search_nodes`、`get_node_details`、`create_embedlinks`、`get_embedlinks`、`delete_embedlinks`
-- 节点管理：`create_node`、`update_node`、`delete_node`、`copy_node`、`move_node`、`recover_node`、`get_node_showcase`
-- 表单类：`get_form_fields`、`submit_form`、`create_form_share_link`、`get_form_association`、`update_form_share`
-- 组织类：`get_a_member`、`update_a_member`、`delete_a_member`、`list_the_team_members`、`list_teams`、`create_a_team`、`update_a_team`、`delete_a_team`、`list_units_under_the_role`、`list_roles`、`create_a_role`、`update_a_role`、`delete_a_role`
-- AI 类：`create_chat_completions`
+在线测试需要 `VIKA_TOKEN`、`VIKA_TEST_SPACE_ID`、`VIKA_TEST_NODE_ID` 和 `VIKA_TEST_DATASHEET_ID`。完整矩阵还要求 `VIKA_LIVE_ALLOW_DESTRUCTIVE=true`。设置 `VIKA_TEST_ATTACHMENT_URL` 后，其中一个附件用例会测试真实远程 URL。
 
-## 说明
+矩阵会清理其创建的记录、字段、嵌入链接、小组和角色。由于对齐后的公开 API 没有删除数据表 operation，测试创建的数据表会保留。套餐不支持的嵌入链接或组织接口会与非预期失败分开报告。
 
-- MCP 工具名严格跟随官方 API reference 子页面 slug，并转换为 snake_case。
-- 删除操作要求显式传入 `confirm_destructive: true`。
-- 搜索和删除的查询参数遵循公开文档示例，例如 `permissions=0,1` 和 `recordIds=recA,recB`。
-- 文件夹或成员接口返回 `403` 时，会按该资源无权限处理，不会把整个接口能力全局熔断。
+## 发布到 npm
+
+仓库现在可同时作为 npm CLI 与 ESM 库发布。npm 包只包含 `bin/`、`dist/`、两份 README、`package.json` 和许可证。
+
+发布前执行：
+
+```bash
+npm ci
+npm run check
+npm test
+npm pack --dry-run
+npm login --registry=https://registry.npmjs.org/
+npm publish --registry=https://registry.npmjs.org/
+```
+
+`prepublishOnly` 会再次执行类型检查与测试，`prepack` 会重新构建 `dist/`。`publishConfig` 还固定了 npm 官方 registry，避免误将版本发布到本地配置的镜像。本项目采用新的 `vika-fusion-mcp` 名称以避开已有的 `vika-mcp` 包，并从 `1.0.0` 开始发布。
+
+### GitHub Release 自动发布
+
+[npm 发布工作流](./.github/workflows/publish-npm.yml) 会在 GitHub Release 发布时运行。它会检出 Release tag，检查 `vX.Y.Z` 或 `X.Y.Z` 是否与 `package.json` 一致，通过 `npm ci` 安装依赖，执行包内置的发布前检查，并携带 provenance 发布。正式 Release 使用 npm 的 `latest` 标签，GitHub Prerelease 使用 `next`。
+
+推荐使用 npm Trusted Publishing：
+
+1. 先在本地手动发布新包一次；或者临时创建 granular npm automation token，并保存为仓库 Secret `NPM_TOKEN`，用于第一次引导发布。
+2. 在 npm 的 `vika-fusion-mcp` 包设置中添加 GitHub Actions Trusted Publisher：用户填写 `Lorwell`，仓库填写 `vika-mcp`，工作流文件名填写 `publish-npm.yml`。
+3. 除非以后创建了同名 GitHub Environment，否则 npm 的 environment 字段保持空白。
+4. OIDC 发布验证成功后删除 `NPM_TOKEN`。
+5. 每次发版前将 `package.json` 和 `package-lock.json` 更新为同一个未使用版本，推送提交，再创建 tag 为 `v<version>` 的 GitHub Release。
+
+Release tag 与包版本不一致时工作流会直接失败，不会静默发布其他代码版本。
+
+## 关于 `uvx`
+
+npm 包不能直接通过 `uvx` 启动。`uvx` 是 `uv tool run` 的别名，它会在隔离的 Python 环境中解析和运行 Python 包；本项目原生的一次性启动方式是：
+
+```bash
+npx -y vika-fusion-mcp@1.0.0
+```
+
+如果某个集成强制要求 `uvx vika-fusion-mcp`，需要另外向 PyPI 发布一个同名的 Python console-script 启动桥。该启动桥负责定位 `npx`，并执行固定版本的 npm 命令，例如 `npx -y vika-fusion-mcp@1.0.0`。这种方案可以工作，但依然依赖 Node.js，同时增加第二套包仓库、发布流程和版本同步成本。只有完整的 Python 重写才能去除 Node.js 依赖。
+
+对绝大多数 MCP 客户端，直接配置 npm 的 `npx` 是更简单、风险更低的分发方案。
 
 ## 许可证
 
-本项目采用 `GPL-3.0-only` 许可证。详见 [LICENSE](./LICENSE)。
+本项目采用 `GPL-3.0-only` 许可证，详见 [LICENSE](./LICENSE)。

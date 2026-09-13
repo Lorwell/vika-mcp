@@ -1,34 +1,75 @@
 import * as z from 'zod/v4';
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 
-import { datasheetIdSchema, jsonObjectSchema, nodeIdSchema, spaceIdSchema } from '../schemas/common.js';
+import { datasheetIdSchema, nodeIdSchema, spaceIdSchema, viewIdSchema } from '../schemas/common.js';
+import {
+  DEFAULT_ATTACHMENT_MAX_BYTES,
+  DEFAULT_REMOTE_DOWNLOAD_TIMEOUT_MS,
+  MAX_ATTACHMENT_MAX_BYTES,
+  MAX_REMOTE_DOWNLOAD_TIMEOUT_MS,
+} from '../http/remote-file.js';
 import { registerTool, type ToolDependencies, ok, requireDestructiveConfirmation } from './common.js';
 
-export function registerDatasheetTools(server: McpServer, deps: ToolDependencies): void {
-  registerTool(
-    server,
-    deps,
-    {
-      name: 'import_from_excel',
-      description: 'Import an Excel file and create a new datasheet.',
-      inputSchema: z.object({
-        spaceId: spaceIdSchema,
-        payload: jsonObjectSchema.describe('Import options including file info and target folder.'),
-      }),
-      execute: async ({ spaceId, payload }) => {
-        const { data, meta } = await deps.client.request({
-          method: 'POST',
-          path: '/api/v1/node/import',
-          body: payload,
-          headers: { 'X-Space-Id': spaceId },
-          feature: 'import_from_excel',
-          idempotent: false,
-        });
-        return ok(data, meta);
-      },
-    },
-  );
+const embedToolBarSchema = z.object({
+  basicTools: z.boolean().optional(),
+  shareBtn: z.boolean().optional(),
+  widgetBtn: z.boolean().optional(),
+  apiBtn: z.boolean().optional(),
+  formBtn: z.boolean().optional(),
+  historyBtn: z.boolean().optional(),
+  robotBtn: z.boolean().optional(),
+  addWidgetBtn: z.boolean().optional(),
+  fullScreenBtn: z.boolean().optional(),
+  formSettingBtn: z.boolean().optional(),
+});
 
+const embedPayloadSchema = z.object({
+  primarySideBar: z
+    .union([z.boolean(), z.object({ collapsed: z.boolean().optional() })])
+    .optional(),
+  viewControl: z
+    .object({
+      viewId: viewIdSchema.optional(),
+      tabBar: z.boolean().optional(),
+      titleBar: z.boolean().optional(),
+      nodeInfoBar: z.boolean().optional(),
+      toolBar: embedToolBarSchema.optional(),
+      collapsed: z.boolean().optional(),
+      collaboratorStatusBar: z.boolean().optional(),
+    })
+    .optional(),
+  bannerLogo: z.boolean().optional(),
+  permissionType: z.enum(['readOnly', 'publicEdit', 'privateEdit']).optional(),
+  isShowEmbedToolBar: z.boolean().optional(),
+  viewManualSave: z.boolean().optional(),
+});
+
+const uploadAttachmentSchema = z
+  .object({
+    datasheetId: datasheetIdSchema,
+    filePath: z.string().min(1).optional().describe('Local file path. Mutually exclusive with url.'),
+    url: z.string().url().max(2048).optional().describe('Public HTTP(S) file URL. Mutually exclusive with filePath.'),
+    fileName: z.string().min(1).max(255).optional(),
+    mimeType: z.string().min(1).max(255).optional(),
+    maxBytes: z.number().int().min(1).max(MAX_ATTACHMENT_MAX_BYTES).default(DEFAULT_ATTACHMENT_MAX_BYTES),
+    downloadTimeoutMs: z
+      .number()
+      .int()
+      .min(100)
+      .max(MAX_REMOTE_DOWNLOAD_TIMEOUT_MS)
+      .default(DEFAULT_REMOTE_DOWNLOAD_TIMEOUT_MS),
+  })
+  .superRefine(({ filePath, url }, context) => {
+    if ((filePath ? 1 : 0) + (url ? 1 : 0) !== 1) {
+      context.addIssue({
+        code: 'custom',
+        message: 'Exactly one of filePath or url is required.',
+        path: ['filePath'],
+      });
+    }
+  });
+
+export function registerDatasheetTools(server: McpServer, deps: ToolDependencies): void {
   registerTool(
     server,
     deps,
@@ -37,17 +78,16 @@ export function registerDatasheetTools(server: McpServer, deps: ToolDependencies
       description: 'Create a new datasheet in a space.',
       inputSchema: z.object({
         spaceId: spaceIdSchema,
-        name: z.string().min(1).describe('Datasheet name.'),
-        description: z.string().optional().describe('Datasheet description.'),
+        name: z.string().min(1).max(100).describe('Datasheet name.'),
+        description: z.string().max(500).optional().describe('Datasheet description.'),
         folderId: z.string().optional().describe('Parent folder ID. Defaults to workspace root.'),
         preNodeId: z.string().optional().describe('Previous node ID for positioning.'),
-        fields: z.array(jsonObjectSchema).optional().describe('Field definitions for the new datasheet.'),
       }),
-      execute: async ({ spaceId, name, description, folderId, preNodeId, fields }) => {
+      execute: async ({ spaceId, name, description, folderId, preNodeId }) => {
         const { data, meta } = await deps.client.request({
           method: 'POST',
           path: `/spaces/${spaceId}/datasheets`,
-          body: { name, description, folderId, preNodeId, fields },
+          body: { name, description, folderId, preNodeId },
           feature: 'create_datasheets',
           idempotent: false,
         });
@@ -61,15 +101,18 @@ export function registerDatasheetTools(server: McpServer, deps: ToolDependencies
     deps,
     {
       name: 'upload_attachments',
-      description: 'Upload a single file to a datasheet attachment endpoint.',
-      inputSchema: z.object({
-        datasheetId: datasheetIdSchema,
-        filePath: z.string().min(1),
-        fileName: z.string().optional(),
-        mimeType: z.string().optional(),
-      }),
-      execute: async ({ datasheetId, filePath, fileName, mimeType }) => {
-        const form = await deps.client.createSingleFileFormData(filePath, fileName, mimeType);
+      description: 'Upload one local file or safely downloaded public HTTP(S) URL to a datasheet.',
+      inputSchema: uploadAttachmentSchema,
+      execute: async ({ datasheetId, filePath, url, fileName, mimeType, maxBytes, downloadTimeoutMs }) => {
+        const form = filePath
+          ? await deps.client.createSingleFileFormData(filePath, fileName, mimeType, maxBytes)
+          : await deps.client.createRemoteFileFormData({
+              url: url!,
+              fileName,
+              mimeType,
+              maxBytes,
+              timeoutMs: downloadTimeoutMs,
+            });
         const { data, meta } = await deps.client.request({
           method: 'POST',
           path: `/datasheets/${datasheetId}/attachments`,
@@ -114,13 +157,14 @@ export function registerDatasheetTools(server: McpServer, deps: ToolDependencies
       inputSchema: z.object({
         spaceId: spaceIdSchema,
         nodeId: nodeIdSchema,
-        payload: jsonObjectSchema,
+        payload: embedPayloadSchema.optional(),
+        theme: z.enum(['light', 'dark']).optional(),
       }),
-      execute: async ({ spaceId, nodeId, payload }) => {
+      execute: async ({ spaceId, nodeId, payload, theme }) => {
         const { data, meta } = await deps.client.request({
           method: 'POST',
           path: `/spaces/${spaceId}/nodes/${nodeId}/embedlinks`,
-          body: payload,
+          body: { payload, theme },
           feature: 'create_embedlinks',
           idempotent: false,
         });

@@ -1,4 +1,4 @@
-export type ApiVersion = 'v1' | 'v2';
+export type ApiVersion = 'v1' | 'v2' | 'v3';
 
 export type HttpMethod = 'GET' | 'POST' | 'PATCH' | 'PUT' | 'DELETE';
 

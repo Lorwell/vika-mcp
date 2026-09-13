@@ -28,7 +28,7 @@ function jsonResponse(status: number, body: unknown, headers?: Record<string, st
 }
 
 describe('VikaClient', () => {
-  it('injects authorization and serializes preformatted reference query values', async () => {
+  it('injects authorization and serializes official record query values', async () => {
     const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) =>
       jsonResponse(
         200,
@@ -48,7 +48,7 @@ describe('VikaClient', () => {
       path: '/datasheets/dst123/records',
       query: {
         recordIds: 'recA,recB',
-        sort: JSON.stringify({ field: 'fldA', order: 'asc' }),
+        sort: [{ field: 'fldA', order: 'asc' }],
       },
       feature: 'records.list',
     });
@@ -61,7 +61,34 @@ describe('VikaClient', () => {
     expect(headers.get('Authorization')).toBe('Bearer secret-token');
     expect(url).toContain('/fusion/v1/datasheets/dst123/records?');
     expect(url).toContain('recordIds=recA,recB');
-    expect(url).toContain('sort={"field":"fldA","order":"asc"}');
+    expect(url).toContain('sort[][field]=fldA');
+    expect(url).toContain('sort[][order]=asc');
+  });
+
+  it('routes v3 requests through the versioned public Fusion path', async () => {
+    const fetchMock = vi.fn<typeof fetch>().mockResolvedValueOnce(jsonResponse(200, { success: true, data: [] }));
+    const client = new VikaClient(makeConfig(), new Logger('error'), new CapabilityRegistry(), fetchMock as typeof fetch);
+
+    const result = await client.request({
+      method: 'GET',
+      version: 'v3',
+      path: '/datasheets/dst123/records',
+      feature: 'get_records.v3',
+    });
+
+    expect(String(fetchMock.mock.calls[0]![0])).toContain('/fusion/v3/datasheets/dst123/records');
+    expect(result.meta.version).toBe('v3');
+  });
+
+  it('rejects internal, pre-versioned, and absolute paths', async () => {
+    const fetchMock = vi.fn<typeof fetch>();
+    const client = new VikaClient(makeConfig(), new Logger('error'), new CapabilityRegistry(), fetchMock as typeof fetch);
+
+    for (const path of ['/api/v1/node/create', '/fusion/v1/spaces', 'https://example.test/fusion/v1/spaces']) {
+      await expect(client.request({ method: 'GET', path })).rejects.toMatchObject({ category: 'validation' });
+    }
+
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 
   it('retries idempotent GET requests on 429', async () => {
@@ -152,6 +179,36 @@ describe('VikaClient', () => {
     });
 
     expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('keeps v1 records available when the v3 feature is unavailable', async () => {
+    const capabilities = new CapabilityRegistry();
+    const fetchMock = vi
+      .fn<typeof fetch>()
+      .mockResolvedValueOnce(jsonResponse(501, { success: false, code: 501, message: 'v3 unavailable' }))
+      .mockResolvedValueOnce(jsonResponse(200, { success: true, data: { records: [] } }));
+    const client = new VikaClient(makeConfig(), new Logger('error'), capabilities, fetchMock as typeof fetch);
+
+    await expect(
+      client.request({
+        method: 'GET',
+        version: 'v3',
+        path: '/datasheets/dst123/records',
+        feature: 'get_records.v3',
+      }),
+    ).rejects.toMatchObject({ category: 'feature_unavailable' });
+
+    const v1Result = await client.request({
+      method: 'GET',
+      version: 'v1',
+      path: '/datasheets/dst123/records',
+      feature: 'get_records.v1',
+    });
+
+    expect(v1Result.data).toEqual({ records: [] });
+    expect(capabilities.isUnavailable('get_records.v3')).toBe(true);
+    expect(capabilities.isUnavailable('get_records.v1')).toBe(false);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
   });
 
   it('does not cache authorization failures as feature_unavailable', async () => {

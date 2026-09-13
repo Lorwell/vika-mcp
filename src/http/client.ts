@@ -1,4 +1,4 @@
-import { readFile } from 'node:fs/promises';
+import { readFile, stat } from 'node:fs/promises';
 import qs from 'qs';
 import { Agent, ProxyAgent } from 'undici';
 
@@ -7,6 +7,11 @@ import { CapabilityRegistry } from '../capabilities.js';
 import { Logger } from '../logger.js';
 import type { ApiVersion, HttpMethod, QueryParams, ResponseMeta, VikaApiEnvelope } from '../types.js';
 import { featureUnavailableError, mapUpstreamError, VikaToolError } from './errors.js';
+import {
+  DEFAULT_ATTACHMENT_MAX_BYTES,
+  downloadRemoteFile,
+  type RemoteFileOptions,
+} from './remote-file.js';
 
 export interface RequestOptions {
   method: HttpMethod;
@@ -197,11 +202,35 @@ export class VikaClient {
     filePath: string,
     fileName?: string,
     mimeType?: string,
+    maxBytes = DEFAULT_ATTACHMENT_MAX_BYTES,
   ): Promise<FormData> {
+    const fileStats = await stat(filePath);
+    if (!fileStats.isFile()) {
+      throw new VikaToolError({ category: 'validation', message: 'filePath must point to a regular file.' });
+    }
+    if (fileStats.size > maxBytes) {
+      throw new VikaToolError({ category: 'validation', message: `Local file exceeds maxBytes (${maxBytes}).` });
+    }
     const buffer = await readFile(filePath);
+    if (buffer.byteLength > maxBytes) {
+      throw new VikaToolError({ category: 'validation', message: `Local file exceeds maxBytes (${maxBytes}).` });
+    }
     const name = fileName ?? filePath.split(/[\\/]/).pop() ?? 'upload.bin';
-    const file = new File([buffer], name, {
-      type: mimeType ?? 'application/octet-stream',
+    return this.createSingleFileFormDataFromBytes(buffer, name, mimeType ?? 'application/octet-stream');
+  }
+
+  public async createRemoteFileFormData(options: RemoteFileOptions): Promise<FormData> {
+    const downloaded = await downloadRemoteFile(options);
+    return this.createSingleFileFormDataFromBytes(
+      Buffer.from(downloaded.bytes),
+      downloaded.fileName,
+      downloaded.mimeType,
+    );
+  }
+
+  private createSingleFileFormDataFromBytes(bytes: BlobPart, fileName: string, mimeType: string): FormData {
+    const file = new File([bytes], fileName, {
+      type: mimeType,
     });
     const form = new FormData();
     form.append('file', file);
@@ -237,11 +266,14 @@ export class VikaClient {
   }
 
   private buildUrl(path: string, version: ApiVersion, query?: QueryParams): string {
-    const base = path.startsWith('http')
-      ? new URL(path)
-      : path.startsWith('/fusion/') || path.startsWith('/api/')
-        ? new URL(path, this.config.host)
-        : new URL(`${this.config.host}/fusion/${version}${path}`);
+    if (!path.startsWith('/') || path.startsWith('/fusion/') || path.startsWith('/api/')) {
+      throw new VikaToolError({
+        category: 'validation',
+        message: `VikaClient only accepts public Fusion API resource paths, received: ${path}`,
+      });
+    }
+
+    const base = new URL(`${this.config.host}/fusion/${version}${path}`);
 
     const queryString = query
       ? qs.stringify(query, {

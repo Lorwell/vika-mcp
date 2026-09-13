@@ -23,6 +23,7 @@ Pick the narrowest read shape that fits:
 
 - Use `get_records` with `recordIds` when the user already knows the target record IDs.
 - Use `get_records` with `viewId`, `filterByFormula`, `maxRecords`, or `sort` when the user needs filtered or paginated reads.
+- Let `get_records` use Fusion v3 by default. If v3 is unavailable, report the failure; retry with `apiVersion: "v1"` only when the caller explicitly chooses v1.
 - If the user refers to fields by name, call `get_fields` first.
 
 ## Update records safely
@@ -40,8 +41,9 @@ Use this sequence when the user wants a new table:
 
 1. Confirm the target `spaceId` (call `get_spaces` if unknown).
 2. Optionally call `get_node_details` on a folder to position the new datasheet.
-3. Call `create_datasheets` with `name` and optional `fields`, `folderId`, or `preNodeId`.
-4. Return the new `datasheetId` and `fieldId` list from the response.
+3. Call `create_datasheets` with `name` and optional `folderId` or `preNodeId`.
+4. Add columns one at a time with the appropriate type-specific field tool.
+5. Return the new `datasheetId` and created `fieldId` values from the responses.
 
 ## Create a field
 
@@ -49,13 +51,14 @@ Use this sequence when the user wants to add a column:
 
 1. Confirm the target `spaceId` and `datasheetId`.
 2. Call `get_fields` to inspect existing schema and avoid name collisions.
-3. Call `create_fields` with `type`, `name`, and optional `property`.
+3. Choose the matching type-specific tool, such as `create_single_text_field`, `create_number_field`, `create_single_select_field`, or `create_formula_field`.
+4. Pass its expanded typed parameters; the tool fixes the official field `type` and assembles `property`.
 
 ## Attachment flow
 
 Use this sequence for file attachments:
 
-1. Call `upload_attachments` with the local file path.
+1. Call `upload_attachments` with exactly one source: local `filePath` or public HTTP(S) `url`. For URLs, set `maxBytes` and `downloadTimeoutMs` when the defaults are not appropriate.
 2. Take the returned attachment object or list item exactly as returned.
 3. Call `update_records` and assign that attachment payload to the attachment field.
 
@@ -66,8 +69,6 @@ These tools require `confirm_destructive: true`:
 - `delete_records`
 - `delete_fields`
 - `delete_embedlinks`
-- `delete_view`
-- `delete_views`
 - `delete_a_member`
 - `delete_a_team`
 - `delete_a_role`
@@ -80,24 +81,20 @@ Before calling one of them:
 
 ## Organization flows
 
-- Use `list_teams` with `teamId: "0"` for top-level teams.
+- Use `list_teams` with `unitId: "0"` for top-level teams; omitting `unitId` has the same default.
 - Use `list_the_team_members` when the user asks for the members of a known team.
-- Use `list_roles` to discover role IDs before `list_units_under_the_role`, `update_a_role`, or `delete_a_role`.
+- Use `list_roles` to discover role unit IDs before `list_units_under_the_role`, `update_a_role`, or `delete_a_role`.
 - Use `get_a_member` before `update_a_member` when the user only gives a member identifier and wants to inspect the current state first.
+- All organization APIs use the official `unitId` parameter. Do not pass the removed `memberId`, `teamId`, or `roleId` aliases.
 
-## View management
+## View inspection
 
-Use this sequence when the user wants to manage datasheet views:
+The public API surface exposed by this server supports view reads only:
 
 1. Confirm the target `datasheetId` (resolve from names if needed).
 2. Call `get_views` to list existing views and their IDs.
-3. For creating: call `create_view` with `type` and optional `name`, `columns`, `sortInfo`, `groupInfo`, `filterInfo`.
-4. For updating: call `update_view` with the target `viewId` and the properties to change (name, lockInfo, autoSave, sequence).
-5. For copying: call `copy_view` with the source `viewId` and optional new name.
-6. For single deletion: call `delete_view` with `viewId` and `confirm_destructive: true`.
-7. For batch deletion: call `delete_views` with an array of `viewIds` and `confirm_destructive: true`.
+3. View creation, update, copy, and deletion are not part of this MCP surface.
 
-## AI endpoint
+## AI exclusion
 
-- `create_chat_completions` maps to the public `/fusion/ai/{assistantId}/chat/completions` endpoint.
-- Only call it when the user has provided or can infer a valid `assistantId`.
+The Vika AI chat-completions operation is intentionally not exposed by this MCP server.

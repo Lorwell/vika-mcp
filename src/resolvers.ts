@@ -45,6 +45,13 @@ export class ResolverService {
       });
     }
 
+    if (!args.parentId && !args.type) {
+      throw new VikaToolError({
+        category: 'validation',
+        message: 'Node type is required when searching nodes by name.',
+      });
+    }
+
     if (args.parentId) {
       const { data } = await this.client.request<NodeDetail>({
         method: 'GET',
@@ -65,7 +72,7 @@ export class ResolverService {
       path: `/spaces/${args.spaceId}/nodes`,
       query: {
         type: args.type,
-        permissions: args.permissions,
+        permissions: args.permissions?.join(','),
         query: args.nodeName,
       },
       feature: 'nodes.search',

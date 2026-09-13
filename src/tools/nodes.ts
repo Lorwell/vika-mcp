@@ -34,11 +34,8 @@ export function registerNodeTools(server: McpServer, deps: ToolDependencies): vo
       description: 'Search nodes in a space through the official v2 search endpoint.',
       inputSchema: z.object({
         spaceId: spaceIdSchema,
-        type: z
-          .string()
-          .optional()
-          .describe('Official node type, for example Datasheet, Folder, Form, Mirror, or Dashboard.'),
-        permissions: z.array(z.number().int()).optional(),
+        type: z.enum(['Folder', 'Datasheet', 'Form', 'Dashboard', 'Mirror']),
+        permissions: z.array(z.union([z.literal(0), z.literal(1), z.literal(2), z.literal(3)])).min(1).optional(),
         query: z.string().optional(),
       }),
       readOnly: true,

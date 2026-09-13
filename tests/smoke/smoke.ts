@@ -4,7 +4,7 @@ import path from 'node:path';
 
 import { CapabilityRegistry } from '../../src/capabilities.js';
 import { loadConfig } from '../../src/config.js';
-import { VikaClient } from '../../src/http/client.js';
+import { VikaClient, type RequestOptions } from '../../src/http/client.js';
 import { Logger } from '../../src/logger.js';
 import { ResolverService } from '../../src/resolvers.js';
 
@@ -69,6 +69,20 @@ async function main(): Promise<void> {
   const capabilities = new CapabilityRegistry();
   const client = new VikaClient(config, logger.child({ component: 'client' }), capabilities);
   const resolvers = new ResolverService(client);
+  let lastRequestStartedAt = 0;
+
+  async function waitForRequestSlot(): Promise<void> {
+    const remainingMs = 650 - (Date.now() - lastRequestStartedAt);
+    if (remainingMs > 0) {
+      await new Promise((resolve) => setTimeout(resolve, remainingMs));
+    }
+    lastRequestStartedAt = Date.now();
+  }
+
+  async function smokeRequest<T = unknown>(options: RequestOptions) {
+    await waitForRequestSlot();
+    return client.request<T>(options);
+  }
 
   const spaceId = requireEnv('VIKA_TEST_SPACE_ID', process.env.VIKA_TEST_SPACE_ID);
   const nodeId = requireEnv('VIKA_TEST_NODE_ID', process.env.VIKA_TEST_NODE_ID);
@@ -80,13 +94,14 @@ async function main(): Promise<void> {
   logger.info('smoke_start', { spaceId, nodeId, datasheetId, prefix });
 
   try {
-    const spaces = await client.request({
+    const spaces = await smokeRequest({
       method: 'GET',
       path: '/spaces',
       feature: 'spaces.list',
     });
     logger.info('spaces_list_ok', { count: Array.isArray(spaces.data) ? spaces.data.length : undefined });
 
+    await waitForRequestSlot();
     const resolved = await resolvers.resolveDatasheet({
       spaceId,
       nodeId,
@@ -96,12 +111,12 @@ async function main(): Promise<void> {
     }
 
     try {
-      await client.request({
+      await smokeRequest({
         method: 'GET',
         version: 'v2',
         path: `/spaces/${spaceId}/nodes`,
         query: {
-          type: 0,
+          type: 'Datasheet',
           query: resolved.name,
         },
         feature: 'nodes.search',
@@ -110,17 +125,18 @@ async function main(): Promise<void> {
       logger.warn('nodes_search_skipped', { error });
     }
 
-    await client.request({
+    await smokeRequest({
       method: 'GET',
+      version: 'v3',
       path: `/datasheets/${datasheetId}/records`,
       query: {
         pageSize: 10,
         pageNum: 1,
       },
-      feature: 'records.list',
+      feature: 'get_records.v3',
     });
 
-    const fieldList = await client.request<{ fields?: Array<Record<string, unknown>> }>({
+    const fieldList = await smokeRequest<{ fields?: Array<Record<string, unknown>> }>({
       method: 'GET',
       path: `/datasheets/${datasheetId}/fields`,
       feature: 'fields.list',
@@ -146,7 +162,7 @@ async function main(): Promise<void> {
       property: {},
     });
 
-    const createdTextField = await client.request({
+    const createdTextField = await smokeRequest({
       method: 'POST',
       path: `/spaces/${spaceId}/datasheets/${datasheetId}/fields`,
       body: textFieldPayload,
@@ -158,7 +174,7 @@ async function main(): Promise<void> {
       throw new Error('Unable to extract created text field ID.');
     }
     cleanup.unshift(async () => {
-      await client.request({
+      await smokeRequest({
         method: 'DELETE',
         path: `/spaces/${spaceId}/datasheets/${datasheetId}/fields/${textFieldId}`,
         feature: 'fields.delete',
@@ -166,21 +182,7 @@ async function main(): Promise<void> {
       });
     });
 
-    try {
-      await client.request({
-        method: 'PATCH',
-        path: `/spaces/${spaceId}/datasheets/${datasheetId}/fields/${textFieldId}`,
-        body: {
-          name: `${prefix}_text_updated`,
-        },
-        feature: 'fields.update',
-        idempotent: false,
-      });
-    } catch (error) {
-      logger.warn('fields_update_skipped', { error });
-    }
-
-    const viewList = await client.request({
+    const viewList = await smokeRequest({
       method: 'GET',
       path: `/datasheets/${datasheetId}/views`,
       feature: 'views.list',
@@ -189,28 +191,9 @@ async function main(): Promise<void> {
       count: Array.isArray((viewList.data as AnyRecord).views) ? ((viewList.data as AnyRecord).views as unknown[]).length : undefined,
     });
 
-    try {
-      const viewPayload = parseJsonEnv<AnyRecord>('VIKA_SMOKE_VIEW_JSON', {
-        name: `${prefix}_grid`,
-        type: 'Grid',
-      });
-      await client.request({
-        method: 'POST',
-        path: `/spaces/${spaceId}/datasheets/${datasheetId}/views`,
-        body: viewPayload,
-        feature: 'views.create',
-        idempotent: false,
-      });
-    } catch (error) {
-      logger.warn('views_mutation_skipped', { error });
-    }
-
-    const createdRecord = await client.request({
+    const createdRecord = await smokeRequest({
       method: 'POST',
       path: `/datasheets/${datasheetId}/records`,
-      query: {
-        fieldKey: 'id',
-      },
       body: {
         records: [
           {
@@ -231,33 +214,30 @@ async function main(): Promise<void> {
       throw new Error('Unable to extract created record ID.');
     }
     cleanup.unshift(async () => {
-      await client.request({
+      await smokeRequest({
         method: 'DELETE',
         path: `/datasheets/${datasheetId}/records`,
         query: {
-          recordIds: [recordId],
+          recordIds: recordId,
         },
         feature: 'records.delete',
         idempotent: false,
       });
     });
 
-    await client.request({
+    await smokeRequest({
       method: 'PATCH',
       path: `/datasheets/${datasheetId}/records`,
-      query: {
-        fieldKey: 'id',
-      },
       body: {
         records: [
           {
             recordId,
             fields: {
-                [textFieldId]: `${prefix}_record_updated`,
-                ...(defaultTitleFieldId ? { [defaultTitleFieldId]: `${prefix}_title_updated` } : {}),
-              },
+              [textFieldId]: `${prefix}_record_updated`,
+              ...(defaultTitleFieldId ? { [defaultTitleFieldId]: `${prefix}_title_updated` } : {}),
             },
-          ],
+          },
+        ],
         fieldKey: 'id',
       },
       feature: 'records.update',
@@ -270,7 +250,7 @@ async function main(): Promise<void> {
 
     try {
       const form = await client.createSingleFileFormData(tempFile, `${prefix}.txt`, 'text/plain');
-      const uploadedAttachment = await client.request({
+      const uploadedAttachment = await smokeRequest({
         method: 'POST',
         path: `/datasheets/${datasheetId}/attachments`,
         formData: form,
@@ -284,12 +264,9 @@ async function main(): Promise<void> {
         (uploadedAttachment.data as AnyRecord).data ??
         uploadedAttachment.data;
 
-      await client.request({
+      await smokeRequest({
         method: 'PATCH',
         path: `/datasheets/${datasheetId}/records`,
-        query: {
-          fieldKey: 'id',
-        },
         body: {
           records: [
             {
@@ -309,23 +286,13 @@ async function main(): Promise<void> {
     }
 
     try {
-      await client.request({
+      await smokeRequest({
         method: 'GET',
         path: `/spaces/${spaceId}/roles`,
         feature: 'roles.list',
       });
     } catch (error) {
       logger.warn('roles_list_skipped', { error });
-    }
-
-    try {
-      await client.request({
-        method: 'GET',
-        path: '/ai/ping',
-        feature: 'ai',
-      });
-    } catch (error) {
-      logger.warn('ai_request_expected', { error });
     }
 
     logger.info('smoke_success', {

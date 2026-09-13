@@ -243,7 +243,7 @@ The recommended authentication method is npm Trusted Publishing:
 4. Delete the repository secret `NPM_TOKEN` and revoke any bootstrap tokens. The workflow intentionally has no token fallback and authenticates only with short-lived OIDC credentials.
 5. For each later release, update `package.json` and `package-lock.json` to the same unused version, push the commit, then publish a GitHub Release whose tag is `v<version>`.
 
-The workflow deliberately fails on a version/tag mismatch and never silently republishes a different revision.
+The workflow deliberately fails on a version/tag mismatch and never silently republishes a different revision. Reruns are idempotent: when the exact version already exists under the expected npm dist-tag, the workflow reports it and exits successfully without publishing again.
 
 ## About `uvx`
 

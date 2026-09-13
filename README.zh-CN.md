@@ -243,7 +243,7 @@ npm publish --registry=https://registry.npmjs.org/
 4. 删除仓库 Secret `NPM_TOKEN` 并撤销所有引导 token。工作流不再提供 token 回退，只使用短期 OIDC 凭据认证。
 5. 后续每次发版前将 `package.json` 和 `package-lock.json` 更新为同一个未使用版本，推送提交，再创建 tag 为 `v<version>` 的 GitHub Release。
 
-Release tag 与包版本不一致时工作流会直接失败，不会静默发布其他代码版本。
+Release tag 与包版本不一致时工作流会直接失败，不会静默发布其他代码版本。工作流支持幂等重跑：如果完全相同的版本已经存在且位于预期 npm dist-tag 下，会报告并成功结束，不再重复发布。
 
 ## 关于 `uvx`
 

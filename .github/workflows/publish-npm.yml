@@ -52,8 +52,37 @@ jobs:
             echo "name=latest" >> "$GITHUB_OUTPUT"
           fi
 
+      - name: Check npm registry
+        id: registry
+        env:
+          DIST_TAG: ${{ steps.dist-tag.outputs.name }}
+        run: |
+          PACKAGE_NAME="$(node -p "require('./package.json').name")"
+          PACKAGE_VERSION="$(node -p "require('./package.json').version")"
+          set +e
+          VIEW_OUTPUT="$(npm view "$PACKAGE_NAME@$PACKAGE_VERSION" version --registry=https://registry.npmjs.org/ 2>&1)"
+          VIEW_STATUS=$?
+          set -e
+
+          if [ "$VIEW_STATUS" -eq 0 ]; then
+            TAGGED_VERSION="$(npm view "$PACKAGE_NAME" "dist-tags.$DIST_TAG" --registry=https://registry.npmjs.org/)"
+            if [ "$TAGGED_VERSION" != "$PACKAGE_VERSION" ]; then
+              echo "$PACKAGE_NAME@$PACKAGE_VERSION already exists, but '$DIST_TAG' points to '$TAGGED_VERSION'." >&2
+              exit 1
+            fi
+            echo "published=true" >> "$GITHUB_OUTPUT"
+            echo "$PACKAGE_NAME@$PACKAGE_VERSION is already published with tag '$DIST_TAG'; skipping duplicate publish."
+          elif printf '%s' "$VIEW_OUTPUT" | grep -q 'E404'; then
+            echo "published=false" >> "$GITHUB_OUTPUT"
+          else
+            printf '%s\n' "$VIEW_OUTPUT" >&2
+            exit "$VIEW_STATUS"
+          fi
+
       - name: Install dependencies
+        if: steps.registry.outputs.published != 'true'
         run: npm ci
 
       - name: Publish package
+        if: steps.registry.outputs.published != 'true'
         run: npm publish --access public --provenance --tag "${{ steps.dist-tag.outputs.name }}"
